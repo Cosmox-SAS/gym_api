@@ -10,7 +10,9 @@ use App\Models\Membership;
 use App\Models\MembershipPlan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Arr; // <-- IMPORTANTE AÑADIR ESTO
+use Illuminate\Support\Str;
 use Carbon\Carbon;
 
 class MemberController extends Controller
@@ -39,6 +41,7 @@ class MemberController extends Controller
             'sexo' => 'nullable|string|in:masculino,femenino,no_binario,otro,preferir_no_decir',
             'estatura' => 'nullable|numeric|min:0',
             'peso' => 'nullable|numeric|min:0',
+            'initial_photos' => 'nullable|array|max:3',
             // 'fingerprint_data' => 'nullable|string', // Quitado de aquí, se maneja abajo
             'plan_id' => 'nullable|exists:membership_plans,id' // <-- REGLA AÑADIDA
         ]);
@@ -49,6 +52,8 @@ class MemberController extends Controller
 
         // Asignar gimnasio_id del admin autenticado
         $memberData['gimnasio_id'] = $request->user()->gimnasio_id;
+        $memberData = $this->mapInitialPhotosToColumns($memberData, $memberData['initial_photos'] ?? null);
+        unset($memberData['initial_photos']);
 
         // --- Lógica de Huella (Opcional) ---
         $gimnasio = Gimnasio::findOrFail($memberData['gimnasio_id']);
@@ -140,8 +145,14 @@ class MemberController extends Controller
             'estatura' => 'nullable|numeric|min:0',
             'peso' => 'nullable|numeric|min:0',
             'identification' => 'sometimes|string|unique:members,identification,' . $member->id,
+            'initial_photos' => 'nullable|array|max:3',
             // 'fingerprint_data' => 'nullable|string', // Se maneja abajo
         ]);
+
+        if (array_key_exists('initial_photos', $validated)) {
+            $validated = $this->mapInitialPhotosToColumns($validated, $validated['initial_photos']);
+            unset($validated['initial_photos']);
+        }
 
        // (Lógica de huella simplificada)
         if ($request->has('fingerprint_data')) {
@@ -192,5 +203,123 @@ class MemberController extends Controller
         $member->save();
 
         return response()->json(['success' => true, 'message' => 'Huella registrada correctamente']);
+    }
+
+    public function uploadInitialPhoto(Request $request)
+    {
+        $validated = $request->validate([
+            'photo' => 'required|file|image|mimes:png,jpg,jpeg|max:3072',
+            'member_id' => 'nullable|integer|exists:members,id',
+            'identification' => 'nullable|string|max:80',
+        ]);
+
+        $gimnasioId = $request->user()->gimnasio_id;
+        $gimnasio = Gimnasio::findOrFail($gimnasioId);
+
+        $clientId = null;
+        if (!empty($validated['member_id'])) {
+            $member = Member::where('id', $validated['member_id'])
+                ->where('gimnasio_id', $gimnasioId)
+                ->firstOrFail();
+            $clientId = $member->identification ?: (string) $member->id;
+        }
+
+        if (!$clientId) {
+            $clientId = $validated['identification'] ?? null;
+        }
+
+        if (!$clientId) {
+            return response()->json([
+                'message' => 'Debes enviar identification o member_id para organizar el archivo.',
+            ], 422);
+        }
+
+        $gymSegment = Str::slug($gimnasio->nombre ?: ('gym-' . $gimnasioId));
+        $clientSegment = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $clientId) ?: ('member-' . ($validated['member_id'] ?? 'tmp'));
+
+        $file = $request->file('photo');
+        $extension = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+        $filename = (string) Str::uuid() . '.' . $extension;
+        $directory = $gymSegment . '/' . $clientSegment;
+
+        if (!$file->isValid()) {
+            return response()->json([
+                'message' => 'El archivo subido no es valido.',
+            ], 422);
+        }
+
+        $pathname = $file->getPathname();
+        if (empty($pathname)) {
+            return response()->json([
+                'message' => 'No se encontro el archivo temporal para subir.',
+            ], 422);
+        }
+
+        $disk = config('filesystems.default', 'r2');
+        $path = $directory . '/' . $filename;
+        $diskInstance = Storage::disk($disk);
+        $stream = fopen($pathname, 'r');
+
+        try {
+            $diskInstance->writeStream($path, $stream, [
+                'visibility' => 'public',
+                'mimetype' => $file->getClientMimeType(),
+            ]);
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }
+
+        $baseUrl = rtrim((string) config("filesystems.disks.{$disk}.url"), '/');
+        $url = $baseUrl !== ''
+            ? $baseUrl . '/' . ltrim($path, '/')
+            : $diskInstance->url($path);
+
+        return response()->json([
+            'message' => 'Foto subida correctamente.',
+            'url' => $url,
+            'path' => $path,
+            'disk' => $disk,
+            'mime' => $file->getClientMimeType(),
+            'size' => $file->getSize(),
+            'taken_at' => now()->toIso8601String(),
+        ], 201);
+    }
+
+    private function mapInitialPhotosToColumns(array $data, $raw): array
+    {
+        $normalized = [null, null, null];
+        if (!is_array($raw)) {
+            $data['foto1'] = null;
+            $data['foto2'] = null;
+            $data['foto3'] = null;
+            return $data;
+        }
+
+        for ($i = 0; $i < 3; $i++) {
+            $entry = $raw[$i] ?? null;
+
+            if (is_string($entry) && trim($entry) !== '') {
+                $normalized[$i] = [
+                    'photo' => $entry,
+                    'taken_at' => null,
+                ];
+                continue;
+            }
+
+            if (is_array($entry) && !empty($entry['photo'])) {
+                $normalized[$i] = [
+                    'photo' => (string) $entry['photo'],
+                    'taken_at' => $entry['taken_at'] ?? null,
+                ];
+            }
+        }
+
+        $data['foto1'] = $normalized[0]['photo'] ?? null;
+        $data['foto2'] = $normalized[1]['photo'] ?? null;
+        $data['foto3'] = $normalized[2]['photo'] ?? null;
+
+        return $data;
     }
 }

@@ -73,6 +73,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ----------------------------------------------------
 
     Route::post('/members/{id}/fingerprint', [MemberController::class, 'storeFingerprint']);
+    Route::post('/members/photos/upload', [MemberController::class, 'uploadInitialPhoto']);
     Route::apiResource('/members', MemberController::class);
     Route::post('/members/{id}/fingerprint', [MemberController::class, 'enrollFingerprint']);
 
