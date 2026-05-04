@@ -242,9 +242,39 @@ class MemberController extends Controller
         $filename = (string) Str::uuid() . '.' . $extension;
         $directory = $gymSegment . '/' . $clientSegment;
 
-        $disk = config('filesystems.default', 'local');
-        $path = Storage::disk($disk)->putFileAs($directory, $file, $filename, 'public');
-        $url = Storage::url($path);
+        if (!$file->isValid()) {
+            return response()->json([
+                'message' => 'El archivo subido no es valido.',
+            ], 422);
+        }
+
+        $pathname = $file->getPathname();
+        if (empty($pathname)) {
+            return response()->json([
+                'message' => 'No se encontro el archivo temporal para subir.',
+            ], 422);
+        }
+
+        $disk = config('filesystems.default', 'r2');
+        $path = $directory . '/' . $filename;
+        $diskInstance = Storage::disk($disk);
+        $stream = fopen($pathname, 'r');
+
+        try {
+            $diskInstance->writeStream($path, $stream, [
+                'visibility' => 'public',
+                'mimetype' => $file->getClientMimeType(),
+            ]);
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }
+
+        $baseUrl = rtrim((string) config("filesystems.disks.{$disk}.url"), '/');
+        $url = $baseUrl !== ''
+            ? $baseUrl . '/' . ltrim($path, '/')
+            : $diskInstance->url($path);
 
         return response()->json([
             'message' => 'Foto subida correctamente.',
