@@ -13,6 +13,9 @@ class Member extends Model
     protected $fillable = [
     'identification',
     'fingerprint_data',
+    'foto1',
+    'foto2',
+    'foto3',
     'gimnasio_id',
     'name',
     'email',
@@ -57,7 +60,7 @@ public function getIndiceMasaCorporalAttribute()
     return null;
 }
 
-protected $appends = ['is_expired'];
+protected $appends = ['is_expired', 'initial_photos'];
 
 
 // --- INICIO DE LA MODIFICACIÓN (Lógica de Control de Acceso) ---
@@ -84,6 +87,15 @@ public function getIsExpiredAttribute()
     // 3. Si su membresía ESTÁ 'active', chequear la fecha en tiempo real
     //    (Esto es por si la tarea programada [cron job] no se ha ejecutado)
     return now()->greaterThan($lastMembership->end_date);
+}
+
+public function getInitialPhotosAttribute()
+{
+    return [
+        $this->foto1 ? ['photo' => $this->foto1, 'taken_at' => null] : null,
+        $this->foto2 ? ['photo' => $this->foto2, 'taken_at' => null] : null,
+        $this->foto3 ? ['photo' => $this->foto3, 'taken_at' => null] : null,
+    ];
 }
 
 // --- FIN DE LA MODIFICACIÓN ---
