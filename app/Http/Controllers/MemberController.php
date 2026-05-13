@@ -9,6 +9,7 @@ use App\Models\Member;
 use App\Models\Membership;
 use App\Models\MembershipPlan;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Arr; // <-- IMPORTANTE AÑADIR ESTO
@@ -21,7 +22,7 @@ class MemberController extends Controller
     {
         $gimnasioId = $request->user()->gimnasio_id;
             return Member::where('gimnasio_id', $gimnasioId)
-            ->with('memberships')
+            ->with('memberships.plan.type')
             ->get();
     }
 
@@ -149,6 +150,8 @@ class MemberController extends Controller
             // 'fingerprint_data' => 'nullable|string', // Se maneja abajo
         ]);
 
+        $oldPhotos = [$member->foto1, $member->foto2, $member->foto3];
+
         if (array_key_exists('initial_photos', $validated)) {
             $validated = $this->mapInitialPhotosToColumns($validated, $validated['initial_photos']);
             unset($validated['initial_photos']);
@@ -161,6 +164,10 @@ class MemberController extends Controller
 
        $member->update($validated);
        $member->save(); // Guardar huella si cambió
+
+       if (array_key_exists('foto1', $validated) || array_key_exists('foto2', $validated) || array_key_exists('foto3', $validated)) {
+           $this->deleteRemovedPhotos($oldPhotos, [$member->foto1, $member->foto2, $member->foto3]);
+       }
 
        return response()->json($member);
     }
@@ -182,6 +189,7 @@ class MemberController extends Controller
     public function destroy($id)
     {
         $member = Member::findOrFail($id);
+        $this->deletePhotosFromStorage([$member->foto1, $member->foto2, $member->foto3]);
         $member->delete();
 
         return response()->json(['message' => 'Miembro eliminado con éxito']);
@@ -238,8 +246,7 @@ class MemberController extends Controller
         $clientSegment = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $clientId) ?: ('member-' . ($validated['member_id'] ?? 'tmp'));
 
         $file = $request->file('photo');
-        $extension = strtolower($file->getClientOriginalExtension() ?: 'jpg');
-        $filename = (string) Str::uuid() . '.' . $extension;
+        $filename = (string) Str::uuid() . '.jpg';
         $directory = $gymSegment . '/' . $clientSegment;
 
         if (!$file->isValid()) {
@@ -248,43 +255,163 @@ class MemberController extends Controller
             ], 422);
         }
 
-        $pathname = $file->getPathname();
-        if (empty($pathname)) {
-            return response()->json([
-                'message' => 'No se encontro el archivo temporal para subir.',
-            ], 422);
-        }
-
         $disk = config('filesystems.default', 'r2');
         $path = $directory . '/' . $filename;
         $diskInstance = Storage::disk($disk);
-        $stream = fopen($pathname, 'r');
+        $prepared = $this->prepareImageForStorage($file);
+        $stream = fopen($prepared['path'], 'r');
 
         try {
             $diskInstance->writeStream($path, $stream, [
                 'visibility' => 'public',
-                'mimetype' => $file->getClientMimeType(),
+                'mimetype' => $prepared['mime'],
             ]);
         } finally {
             if (is_resource($stream)) {
                 fclose($stream);
             }
+            if (!empty($prepared['temporary_path']) && file_exists($prepared['temporary_path'])) {
+                @unlink($prepared['temporary_path']);
+            }
         }
 
-        $baseUrl = rtrim((string) config("filesystems.disks.{$disk}.url"), '/');
-        $url = $baseUrl !== ''
-            ? $baseUrl . '/' . ltrim($path, '/')
-            : $diskInstance->url($path);
+        $url = $this->resolveStorageUrl($path, $disk);
 
         return response()->json([
             'message' => 'Foto subida correctamente.',
             'url' => $url,
+            'photo' => $url,
             'path' => $path,
             'disk' => $disk,
-            'mime' => $file->getClientMimeType(),
-            'size' => $file->getSize(),
+            'mime' => $prepared['mime'],
+            'size' => $prepared['size'],
+            'original_size' => $file->getSize(),
             'taken_at' => now()->toIso8601String(),
         ], 201);
+    }
+
+    private function prepareImageForStorage(UploadedFile $file): array
+    {
+        $sourcePath = $file->getPathname();
+
+        if (empty($sourcePath) || !is_file($sourcePath)) {
+            abort(response()->json([
+                'message' => 'No se encontro el archivo temporal para subir.',
+            ], 422));
+        }
+
+        $contents = file_get_contents($sourcePath);
+        $source = $contents !== false ? @imagecreatefromstring($contents) : false;
+
+        if (!$source) {
+            return [
+                'path' => $sourcePath,
+                'temporary_path' => null,
+                'mime' => $file->getClientMimeType() ?: 'application/octet-stream',
+                'size' => $file->getSize(),
+            ];
+        }
+
+        $source = $this->applyImageOrientation($source, $sourcePath);
+        $width = imagesx($source);
+        $height = imagesy($source);
+        $maxSide = 1600;
+        $scale = min(1, $maxSide / max($width, $height));
+        $targetWidth = max(1, (int) round($width * $scale));
+        $targetHeight = max(1, (int) round($height * $scale));
+
+        $target = imagecreatetruecolor($targetWidth, $targetHeight);
+        $white = imagecolorallocate($target, 255, 255, 255);
+        imagefill($target, 0, 0, $white);
+        imagecopyresampled($target, $source, 0, 0, 0, 0, $targetWidth, $targetHeight, $width, $height);
+
+        $temporaryPath = tempnam(sys_get_temp_dir(), 'member-photo-');
+        imagejpeg($target, $temporaryPath, 78);
+
+        imagedestroy($source);
+        imagedestroy($target);
+
+        return [
+            'path' => $temporaryPath,
+            'temporary_path' => $temporaryPath,
+            'mime' => 'image/jpeg',
+            'size' => filesize($temporaryPath) ?: 0,
+        ];
+    }
+
+    private function applyImageOrientation(\GdImage $image, string $path): \GdImage
+    {
+        if (!function_exists('exif_read_data')) {
+            return $image;
+        }
+
+        $exif = @exif_read_data($path);
+        $orientation = is_array($exif) ? (int) ($exif['Orientation'] ?? 0) : 0;
+
+        $rotated = match ($orientation) {
+            3 => imagerotate($image, 180, 0),
+            6 => imagerotate($image, -90, 0),
+            8 => imagerotate($image, 90, 0),
+            default => $image,
+        };
+
+        return $rotated ?: $image;
+    }
+
+    private function resolveStorageUrl(string $path, ?string $disk = null): string
+    {
+        $disk = $disk ?: config('filesystems.default', 'local');
+        $baseUrl = rtrim((string) config("filesystems.disks.{$disk}.url"), '/');
+
+        if ($baseUrl !== '') {
+            return $baseUrl . '/' . ltrim($path, '/');
+        }
+
+        return Storage::disk($disk)->url($path);
+    }
+
+    private function deleteRemovedPhotos(array $oldPhotos, array $newPhotos): void
+    {
+        $remaining = array_filter(array_map(fn ($photo) => $this->photoStoragePath($photo), $newPhotos));
+
+        $removed = array_filter($oldPhotos, function ($photo) use ($remaining) {
+            $path = $this->photoStoragePath($photo);
+            return $path && !in_array($path, $remaining, true);
+        });
+
+        $this->deletePhotosFromStorage($removed);
+    }
+
+    private function deletePhotosFromStorage(array $photos): void
+    {
+        $disk = config('filesystems.default', 'local');
+        $paths = array_values(array_unique(array_filter(array_map(fn ($photo) => $this->photoStoragePath($photo), $photos))));
+
+        if ($paths === []) {
+            return;
+        }
+
+        Storage::disk($disk)->delete($paths);
+    }
+
+    private function photoStoragePath(?string $photo): ?string
+    {
+        if (!$photo) {
+            return null;
+        }
+
+        if (!preg_match('/^https?:\/\//i', $photo)) {
+            return ltrim($photo, '/');
+        }
+
+        foreach (['r2', 's3', config('filesystems.default', 'local')] as $disk) {
+            $baseUrl = rtrim((string) config("filesystems.disks.{$disk}.url"), '/');
+            if ($baseUrl !== '' && str_starts_with($photo, $baseUrl . '/')) {
+                return ltrim(substr($photo, strlen($baseUrl)), '/');
+            }
+        }
+
+        return null;
     }
 
     private function mapInitialPhotosToColumns(array $data, $raw): array
@@ -308,9 +435,9 @@ class MemberController extends Controller
                 continue;
             }
 
-            if (is_array($entry) && !empty($entry['photo'])) {
+            if (is_array($entry) && (!empty($entry['path']) || !empty($entry['photo']))) {
                 $normalized[$i] = [
-                    'photo' => (string) $entry['photo'],
+                    'photo' => (string) ($entry['path'] ?? $entry['photo']),
                     'taken_at' => $entry['taken_at'] ?? null,
                 ];
             }

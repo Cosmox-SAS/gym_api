@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Storage;
 class Member extends Model
 {
     /** @use HasFactory<\Database\Factories\MemberFactory> */
@@ -92,10 +93,43 @@ public function getIsExpiredAttribute()
 public function getInitialPhotosAttribute()
 {
     return [
-        $this->foto1 ? ['photo' => $this->foto1, 'taken_at' => null] : null,
-        $this->foto2 ? ['photo' => $this->foto2, 'taken_at' => null] : null,
-        $this->foto3 ? ['photo' => $this->foto3, 'taken_at' => null] : null,
+        $this->formatInitialPhoto($this->foto1),
+        $this->formatInitialPhoto($this->foto2),
+        $this->formatInitialPhoto($this->foto3),
     ];
+}
+
+private function formatInitialPhoto(?string $photo): ?array
+{
+    if (!$photo) {
+        return null;
+    }
+
+    return [
+        'photo' => $this->resolvePhotoUrl($photo),
+        'path' => $photo,
+        'taken_at' => null,
+    ];
+}
+
+private function resolvePhotoUrl(string $photo): string
+{
+    if (preg_match('/^https?:\/\//i', $photo)) {
+        return $photo;
+    }
+
+    $disk = config('filesystems.default', 'local');
+    $baseUrl = rtrim((string) config("filesystems.disks.{$disk}.url"), '/');
+
+    if ($baseUrl !== '') {
+        return $baseUrl . '/' . ltrim($photo, '/');
+    }
+
+    try {
+        return Storage::disk($disk)->url($photo);
+    } catch (\Throwable) {
+        return $photo;
+    }
 }
 
 // --- FIN DE LA MODIFICACIÓN ---
