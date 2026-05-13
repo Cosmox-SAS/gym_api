@@ -15,8 +15,11 @@ class Member extends Model
     'identification',
     'fingerprint_data',
     'foto1',
+    'foto1_taken_at',
     'foto2',
+    'foto2_taken_at',
     'foto3',
+    'foto3_taken_at',
     'gimnasio_id',
     'name',
     'email',
@@ -28,6 +31,12 @@ class Member extends Model
     'peso',
     // Omitimos 'objetivo_entrenamiento' como solicitaste
 ];
+
+    protected $casts = [
+        'foto1_taken_at' => 'datetime',
+        'foto2_taken_at' => 'datetime',
+        'foto3_taken_at' => 'datetime',
+    ];
 
      public function gimnasio()
     {
@@ -93,13 +102,13 @@ public function getIsExpiredAttribute()
 public function getInitialPhotosAttribute()
 {
     return [
-        $this->formatInitialPhoto($this->foto1),
-        $this->formatInitialPhoto($this->foto2),
-        $this->formatInitialPhoto($this->foto3),
+        $this->formatInitialPhoto($this->foto1, $this->foto1_taken_at),
+        $this->formatInitialPhoto($this->foto2, $this->foto2_taken_at),
+        $this->formatInitialPhoto($this->foto3, $this->foto3_taken_at),
     ];
 }
 
-private function formatInitialPhoto(?string $photo): ?array
+private function formatInitialPhoto(?string $photo, $takenAt = null): ?array
 {
     if (!$photo) {
         return null;
@@ -108,7 +117,7 @@ private function formatInitialPhoto(?string $photo): ?array
     return [
         'photo' => $this->resolvePhotoUrl($photo),
         'path' => $photo,
-        'taken_at' => null,
+        'taken_at' => $takenAt instanceof Carbon ? $takenAt->toIso8601String() : null,
     ];
 }
 
