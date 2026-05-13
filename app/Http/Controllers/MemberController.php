@@ -121,12 +121,7 @@ class MemberController extends Controller
 
     public function show($id)
     {
-        // (Tu código de 'show' original estaba bien, pero este es más completo)
-         $member = Member::with(['memberships' => function ($q)
-        {
-        // Modificado para que también pueda encontrar la membresía pendiente
-        $q->whereIn('status', ['active', 'inactive_unpaid', 'expired']);
-        }, 'memberships.plan'])->findOrFail($id);
+        $member = Member::with('memberships.plan.type')->findOrFail($id);
 
         return response()->json($member);
     }
@@ -419,8 +414,11 @@ class MemberController extends Controller
         $normalized = [null, null, null];
         if (!is_array($raw)) {
             $data['foto1'] = null;
+            $data['foto1_taken_at'] = null;
             $data['foto2'] = null;
+            $data['foto2_taken_at'] = null;
             $data['foto3'] = null;
+            $data['foto3_taken_at'] = null;
             return $data;
         }
 
@@ -444,9 +442,25 @@ class MemberController extends Controller
         }
 
         $data['foto1'] = $normalized[0]['photo'] ?? null;
+        $data['foto1_taken_at'] = $this->normalizePhotoTakenAt($normalized[0]['taken_at'] ?? null);
         $data['foto2'] = $normalized[1]['photo'] ?? null;
+        $data['foto2_taken_at'] = $this->normalizePhotoTakenAt($normalized[1]['taken_at'] ?? null);
         $data['foto3'] = $normalized[2]['photo'] ?? null;
+        $data['foto3_taken_at'] = $this->normalizePhotoTakenAt($normalized[2]['taken_at'] ?? null);
 
         return $data;
+    }
+
+    private function normalizePhotoTakenAt($value): ?Carbon
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($value);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }
