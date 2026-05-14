@@ -79,7 +79,15 @@ public function index(Request $request)
             $query->whereIn('status', ['active', 'expired', 'inactive_unpaid']);
         }
 
-        // 5. Ordenar por fecha más reciente y paginar
+        // 5. Filtro de frecuencia del plan
+        $frequency = $request->input('frequency');
+        if ($frequency) {
+            $query->whereHas('plan', function ($q) use ($frequency) {
+                $q->where('frequency', $frequency);
+            });
+        }
+
+        // 6. Ordenar por fecha más reciente y paginar
         $memberships = $query->orderByDesc('end_date')->paginate(15);
 
         return response()->json($memberships);

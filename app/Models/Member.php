@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Storage;
 class Member extends Model
 {
     /** @use HasFactory<\Database\Factories\MemberFactory> */
@@ -14,8 +15,11 @@ class Member extends Model
     'identification',
     'fingerprint_data',
     'foto1',
+    'foto1_taken_at',
     'foto2',
+    'foto2_taken_at',
     'foto3',
+    'foto3_taken_at',
     'gimnasio_id',
     'name',
     'email',
@@ -27,6 +31,12 @@ class Member extends Model
     'peso',
     // Omitimos 'objetivo_entrenamiento' como solicitaste
 ];
+
+    protected $casts = [
+        'foto1_taken_at' => 'datetime',
+        'foto2_taken_at' => 'datetime',
+        'foto3_taken_at' => 'datetime',
+    ];
 
      public function gimnasio()
     {
@@ -92,10 +102,43 @@ public function getIsExpiredAttribute()
 public function getInitialPhotosAttribute()
 {
     return [
-        $this->foto1 ? ['photo' => $this->foto1, 'taken_at' => null] : null,
-        $this->foto2 ? ['photo' => $this->foto2, 'taken_at' => null] : null,
-        $this->foto3 ? ['photo' => $this->foto3, 'taken_at' => null] : null,
+        $this->formatInitialPhoto($this->foto1, $this->foto1_taken_at),
+        $this->formatInitialPhoto($this->foto2, $this->foto2_taken_at),
+        $this->formatInitialPhoto($this->foto3, $this->foto3_taken_at),
     ];
+}
+
+private function formatInitialPhoto(?string $photo, $takenAt = null): ?array
+{
+    if (!$photo) {
+        return null;
+    }
+
+    return [
+        'photo' => $this->resolvePhotoUrl($photo),
+        'path' => $photo,
+        'taken_at' => $takenAt instanceof Carbon ? $takenAt->toIso8601String() : null,
+    ];
+}
+
+private function resolvePhotoUrl(string $photo): string
+{
+    if (preg_match('/^https?:\/\//i', $photo)) {
+        return $photo;
+    }
+
+    $disk = config('filesystems.default', 'local');
+    $baseUrl = rtrim((string) config("filesystems.disks.{$disk}.url"), '/');
+
+    if ($baseUrl !== '') {
+        return $baseUrl . '/' . ltrim($photo, '/');
+    }
+
+    try {
+        return Storage::disk($disk)->url($photo);
+    } catch (\Throwable) {
+        return $photo;
+    }
 }
 
 // --- FIN DE LA MODIFICACIÓN ---
