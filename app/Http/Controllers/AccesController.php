@@ -250,4 +250,9 @@ class AccesController extends Controller
 
         return response()->json($members);
     }
+
+    public function getFingerprintsForGym($gimnasio_id)
+    {
+        return $this->getFingerprintTemplates($gimnasio_id);
+    }
 }
