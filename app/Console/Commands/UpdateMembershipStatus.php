@@ -40,7 +40,20 @@ class UpdateMembershipStatus extends Command
 
         $now = Carbon::now();
 
-        // 1. NOTIFICAR: Membresías que vencen en 3 días (Recordatorio)
+        // 1. CANCELAR: Membresías vencidas hace 30 días o más
+        $cancelled = Membership::with('member')
+            ->whereIn('status', ['active', 'expired', 'inactive_unpaid'])
+            ->whereDate('end_date', '<=', $now->copy()->subDays(30)->toDateString())
+            ->get();
+
+        foreach ($cancelled as $membership) {
+            $membership->status = 'cancelled';
+            $membership->save();
+
+            Log::info("Membresía de [{$membership->member->name}] cancelada por superar 30 días vencida.");
+        }
+
+        // 2. NOTIFICAR: Membresías que vencen en 3 días (Recordatorio)
         $expiringSoon = Membership::with('member')
             ->where('status', 'active')
             ->whereDate('end_date', '=', $now->copy()->addDays(3)->toDateString())
@@ -59,7 +72,7 @@ class UpdateMembershipStatus extends Command
             // TODO: Notificar al Admin (puedes guardar esto en una tabla 'notifications' o similar)
         }
 
-        // 2. VENCER: Membresías que vencieron ayer o antes y siguen 'activas'
+        // 3. VENCER: Membresías que vencieron ayer o antes y siguen 'activas'
         $expired = Membership::with('member')
             ->where('status', 'active')
             ->whereDate('end_date', '<', $now->toDateString())
@@ -78,7 +91,7 @@ class UpdateMembershipStatus extends Command
             Log::info("Membresía de [{$membership->member->name}] ha vencido. Estado -> expired.");
         }
 
-        // 3. SUSPENDER: Membresías 'vencidas' por más de 3 días (Período de gracia)
+        // 4. SUSPENDER: Membresías 'vencidas' por más de 3 días (Período de gracia)
         // (Esta lógica ya estaba correcta)
         $suspended = Membership::with('member')
             ->where('status', 'expired')
