@@ -15,10 +15,19 @@ class MembershipController extends Controller
 public function index(Request $request)
     {
         $gimnasioId = $request->user()->gimnasio_id;
+        $now = Carbon::now();
+        $cancelCutoff = $now->copy()->subDays(30);
 
         // --- 1. RUTINA DE MANTENIMIENTO AUTOMÁTICO ---
+        Membership::whereIn('status', ['active', 'expired', 'inactive_unpaid'])
+            ->whereDate('end_date', '<=', $cancelCutoff->toDateString())
+            ->whereHas('member', function ($query) use ($gimnasioId) {
+                $query->where('gimnasio_id', $gimnasioId);
+            })
+            ->update(['status' => 'cancelled']);
+
         $membresiasVencidas = Membership::with('plan')
-                ->where('end_date', '<', Carbon::now())
+                ->where('end_date', '<', $now)
                 ->whereNotIn('status', ['cancelled', 'inactive_unpaid'])
             ->whereHas('member', function ($query) use ($gimnasioId) {
                 $query->where('gimnasio_id', $gimnasioId);
@@ -28,9 +37,9 @@ public function index(Request $request)
         foreach ($membresiasVencidas as $m) {
             $guardarCambios = false;
 
-            // Membresías vencidas hace más de 2 meses → pasar a 'inactive_unpaid' y ocultar
-            if ($m->end_date < Carbon::now()->subMonths(2)) {
-                    $m->status = 'inactive_unpaid';
+            // Membresías vencidas hace más de 3 días → pasar a 'inactive_unpaid'
+            if (Carbon::parse($m->end_date)->lt($now->copy()->subDays(3))) {
+                $m->status = 'inactive_unpaid';
                 $m->save();
                 continue;
             }
