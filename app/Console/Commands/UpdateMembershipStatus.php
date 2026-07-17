@@ -63,9 +63,7 @@ class UpdateMembershipStatus extends Command
 
             // --- INICIO MODIFICACIÓN ---
             // Solo enviar si el miembro tiene un email registrado
-            if ($membership->member && $membership->member->email) {
-                 Mail::to($membership->member->email)->queue(new MembershipExpiringSoon($membership));
-            }
+            $this->queueMembershipEmail($membership, MembershipExpiringSoon::class);
             // --- FIN MODIFICACIÓN ---
 
             Log::info("Notificando a [{$membership->member->name}]: Su membresía vence en 3 días.");
@@ -83,9 +81,7 @@ class UpdateMembershipStatus extends Command
             $membership->save();
 
             // --- INICIO MODIFICACIÓN ---
-            if ($membership->member && $membership->member->email) {
-                Mail::to($membership->member->email)->queue(new MembershipExpired($membership));
-            }
+            $this->queueMembershipEmail($membership, MembershipExpired::class);
             // --- FIN MODIFICACIÓN ---
 
             Log::info("Membresía de [{$membership->member->name}] ha vencido. Estado -> expired.");
@@ -103,9 +99,7 @@ class UpdateMembershipStatus extends Command
             $membership->save();
 
             // --- INICIO MODIFICACIÓN ---
-            if ($membership->member && $membership->member->email) {
-                Mail::to($membership->member->email)->queue(new MembershipSuspended($membership));
-            }
+            $this->queueMembershipEmail($membership, MembershipSuspended::class);
             // --- FIN MODIFICACIÓN ---
 
             Log::info("Membresía de [{$membership->member->name}] suspendida por falta de pago. Estado -> inactive_unpaid.");
@@ -113,5 +107,19 @@ class UpdateMembershipStatus extends Command
 
         $this->info('Actualización de estados completada.');
         Log::info('Finalizado [app:update-membership-status].');
+    }
+
+    private function queueMembershipEmail(Membership $membership, string $mailableClass): void
+    {
+        if (!$membership->member || !$membership->member->email) {
+            return;
+        }
+
+        if (!class_exists($mailableClass)) {
+            Log::warning("No se envió correo de membresía porque no existe la clase [{$mailableClass}].");
+            return;
+        }
+
+        Mail::to($membership->member->email)->queue(new $mailableClass($membership));
     }
 }
