@@ -44,6 +44,7 @@ class PublicRegistrationController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'nullable|email|max:255|unique:members,email',
             'phone' => 'nullable|string|max:20',
+            'allow_whatsapp_notifications' => 'sometimes|boolean',
             'birth_date' => 'required|date',
             // Usamos los mismos 'in' que tu MemberController original
             'sexo' => 'required|string|in:masculino,femenino,no_binario,otro,preferir_no_decir',
@@ -72,6 +73,8 @@ class PublicRegistrationController extends Controller
                 'name' => $validated['name'],
                 'email' => $validated['email'] ?? null,
                 'phone' => $validated['phone'] ?? null,
+                'allow_whatsapp_notifications' => $request->boolean('allow_whatsapp_notifications'),
+                'whatsapp_opt_in_at' => $request->boolean('allow_whatsapp_notifications') ? now() : null,
                 'birth_date' => $validated['birth_date'],
                 'sexo' => $validated['sexo'],
                 'estatura' => $validated['estatura'] ?? null,

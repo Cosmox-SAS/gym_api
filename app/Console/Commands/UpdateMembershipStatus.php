@@ -7,6 +7,7 @@ use App\Models\Membership;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail; // <-- 1. IMPORTAR MAIL
+use App\Services\WhatsAppService;
 
 // 2. IMPORTAR TUS FUTUROS MAILABLES (Asegúrate de crearlos con `php artisan make:mail`)
 use App\Mail\MembershipExpiringSoon;
@@ -33,7 +34,7 @@ class UpdateMembershipStatus extends Command
     /**
      * Execute the console command.
      */
-    public function handle()
+    public function handle(WhatsAppService $whatsApp)
     {
         $this->info('Iniciando actualización de estados de membresías...');
         Log::info('Iniciando [app:update-membership-status]...');
@@ -64,9 +65,12 @@ class UpdateMembershipStatus extends Command
             // --- INICIO MODIFICACIÓN ---
             // Solo enviar si el miembro tiene un email registrado
             $this->queueMembershipEmail($membership, MembershipExpiringSoon::class);
+            $whatsAppResult = $whatsApp->sendMembershipExpiringSoon($membership);
             // --- FIN MODIFICACIÓN ---
 
-            Log::info("Notificando a [{$membership->member->name}]: Su membresía vence en 3 días.");
+            Log::info("Notificando a [{$membership->member->name}]: Su membresía vence en 3 días.", [
+                'whatsapp' => $whatsAppResult,
+            ]);
             // TODO: Notificar al Admin (puedes guardar esto en una tabla 'notifications' o similar)
         }
 
