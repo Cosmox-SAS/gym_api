@@ -37,6 +37,7 @@ class MemberController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'nullable|email|unique:members,email',
             'phone' => 'nullable|string|max:20',
+            'allow_whatsapp_notifications' => 'sometimes|boolean',
             'birth_date' => 'nullable|date',
             'medical_history' => 'nullable|string',
             'sexo' => 'nullable|string|in:masculino,femenino,no_binario,otro,preferir_no_decir',
@@ -53,6 +54,8 @@ class MemberController extends Controller
 
         // Asignar gimnasio_id del admin autenticado
         $memberData['gimnasio_id'] = $request->user()->gimnasio_id;
+        $memberData['allow_whatsapp_notifications'] = $request->boolean('allow_whatsapp_notifications');
+        $memberData['whatsapp_opt_in_at'] = $memberData['allow_whatsapp_notifications'] ? now() : null;
         $memberData = $this->mapInitialPhotosToColumns($memberData, $memberData['initial_photos'] ?? null);
         unset($memberData['initial_photos']);
 
@@ -135,6 +138,7 @@ class MemberController extends Controller
             'name' => 'sometimes|string|max:255',
             'email' => 'sometimes|nullable|email|unique:members,email,' . $member->id,
             'phone' => 'sometimes|nullable|string|max:20',
+            'allow_whatsapp_notifications' => 'sometimes|boolean',
             'birth_date' => 'sometimes|nullable|date',
             'medical_history' => 'nullable|string',
             'sexo' => 'nullable|string|in:masculino,femenino,no_binario,otro,preferir_no_decir',
@@ -150,6 +154,13 @@ class MemberController extends Controller
         if (array_key_exists('initial_photos', $validated)) {
             $validated = $this->mapInitialPhotosToColumns($validated, $validated['initial_photos']);
             unset($validated['initial_photos']);
+        }
+
+        if ($request->has('allow_whatsapp_notifications')) {
+            $validated['allow_whatsapp_notifications'] = $request->boolean('allow_whatsapp_notifications');
+            $validated['whatsapp_opt_in_at'] = $validated['allow_whatsapp_notifications']
+                ? ($member->whatsapp_opt_in_at ?? now())
+                : null;
         }
 
        // (Lógica de huella simplificada)

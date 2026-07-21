@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\SendMembershipExpiringSoonWhatsApp;
 use Illuminate\Console\Command;
 use App\Models\Membership;
 use Carbon\Carbon;
@@ -64,6 +65,7 @@ class UpdateMembershipStatus extends Command
             // --- INICIO MODIFICACIÓN ---
             // Solo enviar si el miembro tiene un email registrado
             $this->queueMembershipEmail($membership, MembershipExpiringSoon::class);
+            SendMembershipExpiringSoonWhatsApp::dispatch($membership->id);
             // --- FIN MODIFICACIÓN ---
 
             Log::info("Notificando a [{$membership->member->name}]: Su membresía vence en 3 días.");

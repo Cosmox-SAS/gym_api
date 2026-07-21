@@ -24,6 +24,8 @@ class Member extends Model
     'name',
     'email',
     'phone',
+    'allow_whatsapp_notifications',
+    'whatsapp_opt_in_at',
     'birth_date',
     'medical_history',
     'sexo',
@@ -36,6 +38,8 @@ class Member extends Model
         'foto1_taken_at' => 'datetime',
         'foto2_taken_at' => 'datetime',
         'foto3_taken_at' => 'datetime',
+        'allow_whatsapp_notifications' => 'boolean',
+        'whatsapp_opt_in_at' => 'datetime',
     ];
 
      public function gimnasio()

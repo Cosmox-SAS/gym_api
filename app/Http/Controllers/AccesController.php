@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Member;
 use App\Models\AccessLog;
+use Carbon\Carbon;
+
 class AccesController extends Controller
 {
     /**
@@ -14,9 +16,16 @@ class AccesController extends Controller
     {
         $request->validate([
             'identification' => 'required|string',
+            'gimnasio_id' => 'sometimes|integer|exists:gimnasios,id',
         ]);
 
-        $member = Member::where('identification', $request->identification)->first();
+        $memberQuery = Member::where('identification', $request->identification);
+
+        if ($request->filled('gimnasio_id')) {
+            $memberQuery->where('gimnasio_id', $request->gimnasio_id);
+        }
+
+        $member = $memberQuery->first();
 
         if (!$member) {
             return response()->json(['success' => false, 'message' => 'Miembro no encontrado'], 404);
@@ -29,7 +38,12 @@ class AccesController extends Controller
                 'status'    => 'denegado',
                 'accessed_at' => now(),
             ]);
-            return response()->json(['success' => false, 'message' => 'Membresía expirada'], 403);
+            return response()->json([
+                'success' => false,
+                'message' => 'Membresía expirada',
+                'member' => $member,
+                'access_summary' => $this->buildAccessSummary($member),
+            ], 403);
         }
 
         AccessLog::create([
@@ -39,7 +53,70 @@ class AccesController extends Controller
             'accessed_at' => now(),
         ]);
 
-        return response()->json(['success' => true, 'message' => 'Acceso permitido', 'member' => $member]);
+        return response()->json([
+            'success' => true,
+            'message' => 'Acceso permitido',
+            'member' => $member,
+            'access_summary' => $this->buildAccessSummary($member),
+        ]);
+    }
+
+    private function buildAccessSummary(Member $member): array
+    {
+        $membership = $member->memberships()->latest('end_date')->first();
+
+        if (!$membership) {
+            return [
+                'has_membership' => false,
+                'status' => null,
+                'end_date' => null,
+                'days_remaining' => null,
+                'days_overdue' => null,
+                'message' => 'Sin membresía registrada',
+            ];
+        }
+
+        $endDate = Carbon::parse($membership->end_date);
+        $daysDifference = (int) now()->startOfDay()->diffInDays($endDate->copy()->startOfDay(), false);
+        $isActive = $membership->status === 'active' && !now()->greaterThan($endDate);
+
+        return [
+            'has_membership' => true,
+            'status' => $membership->status,
+            'end_date' => $endDate->toDateString(),
+            'days_remaining' => $isActive ? max(0, $daysDifference) : null,
+            'days_overdue' => $isActive ? null : max(0, -$daysDifference),
+            'message' => $this->buildAccessSummaryMessage($isActive, $daysDifference),
+        ];
+    }
+
+    private function buildAccessSummaryMessage(bool $isActive, int $daysDifference): string
+    {
+        if ($isActive && $daysDifference === 0) {
+            return 'Tu membresía vence hoy';
+        }
+
+        if ($isActive && $daysDifference === 1) {
+            return 'Te queda 1 día de membresía';
+        }
+
+        if ($isActive) {
+            return "Te quedan {$daysDifference} días de membresía";
+        }
+
+        if ($daysDifference > 0) {
+            return 'Tu membresía no está activa';
+        }
+
+        if ($daysDifference === 0) {
+            return 'Tu membresía venció hoy';
+        }
+
+        $daysOverdue = -$daysDifference;
+
+        return $daysOverdue === 1
+            ? 'Tu membresía venció hace 1 día'
+            : "Tu membresía venció hace {$daysOverdue} días";
     }
 
     /**
