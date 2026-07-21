@@ -116,13 +116,28 @@ class WhatsAppService
         $member = $membership->member;
         $gymName = $member->gimnasio->nombre ?? 'tu gimnasio';
         $endDate = Carbon::parse($membership->end_date)->format('d/m/Y');
+        $templateName = config('services.whatsapp.template_expiring');
+
+        if ($templateName === 'hello_world') {
+            return [
+                'messaging_product' => 'whatsapp',
+                'to' => $to,
+                'type' => 'template',
+                'template' => [
+                    'name' => $templateName,
+                    'language' => [
+                        'code' => config('services.whatsapp.template_language'),
+                    ],
+                ],
+            ];
+        }
 
         return [
             'messaging_product' => 'whatsapp',
             'to' => $to,
             'type' => 'template',
             'template' => [
-                'name' => config('services.whatsapp.template_expiring'),
+                'name' => $templateName,
                 'language' => [
                     'code' => config('services.whatsapp.template_language'),
                 ],
