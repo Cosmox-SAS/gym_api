@@ -86,7 +86,11 @@ protected $appends = ['is_expired', 'initial_photos'];
  */
 public function getIsExpiredAttribute()
 {
-    $lastMembership = $this->memberships()->latest('end_date')->first();
+    // Si las membresías ya vienen cargadas (p. ej. en la lista de clientes) se usan esas,
+    // para no hacer una consulta extra por cada cliente.
+    $lastMembership = $this->relationLoaded('memberships')
+        ? $this->memberships->sortByDesc('end_date')->first()
+        : $this->memberships()->latest('end_date')->first();
 
     // 1. Si NUNCA ha tenido membresía, no tiene acceso.
     if (!$lastMembership) {

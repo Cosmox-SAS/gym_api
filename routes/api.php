@@ -40,13 +40,18 @@ Route::post('/public/register/{gimnasio_id}', [PublicRegistrationController::cla
 
 // Acceso (Kiosco / Huella) — rutas públicas, el kiosco no tiene sesión de admin.
 Route::post('/access/identification', [AccesController::class, 'accessByIdentification']);
+// DESACTIVADAS: el kiosco de huella no está en uso y estas rutas son públicas.
+// Permitían descargar las huellas de cualquier gimnasio y registrar accesos con cualquier member_id.
+// Antes de reactivarlas hay que agregarles autenticación del kiosco (p. ej. una clave por gimnasio).
+// Las usan: gym_front (useFingerprint.ts, FingerprintKiosk.vue) y fingerprint_bridge*.py.
+//
 // El kiosco primero descarga los FMDs, hace el matching con el SDK de DigitalPersona
 // y luego llama a /access/fingerprint con el member_id identificado.
-Route::get('/access/fingerprints/{gimnasio_id}', [AccesController::class, 'getFingerprintsForGym']);
-Route::post('/access/fingerprint', [AccesController::class, 'accessByFingerprint']);
-Route::post('/access/fingerprint/match', [AccesController::class, 'matchFingerprint']);
+// Route::get('/access/fingerprints/{gimnasio_id}', [AccesController::class, 'getFingerprintsForGym']);
+// Route::post('/access/fingerprint', [AccesController::class, 'accessByFingerprint']);
+// Route::post('/access/fingerprint/match', [AccesController::class, 'matchFingerprint']);
 // Templates para identificación 1:N en el kiosco
-Route::get('/kiosk/fingerprints/{gimnasio_id}', [AccesController::class, 'getFingerprintTemplates']);
+// Route::get('/kiosk/fingerprints/{gimnasio_id}', [AccesController::class, 'getFingerprintTemplates']);
 
 /*
 |--------------------------------------------------------------------------
@@ -74,6 +79,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/members/{id}/fingerprint', [MemberController::class, 'storeFingerprint']);
     Route::post('/members/photos/upload', [MemberController::class, 'uploadInitialPhoto']);
+    Route::post('/members/whatsapp-notifications', [MemberController::class, 'updateWhatsAppNotifications']);
+    Route::get('/members/{id}/whatsapp-notifications', [MemberController::class, 'whatsAppNotifications']);
     Route::apiResource('/members', MemberController::class);
     Route::post('/members/{id}/fingerprint', [MemberController::class, 'enrollFingerprint']);
 

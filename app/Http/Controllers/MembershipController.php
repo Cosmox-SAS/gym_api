@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 use App\Models\Membership;
 use App\Models\Member;
 use App\Models\MembershipPlan;
+use App\Services\MembershipStatusService;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 class MembershipController extends Controller
@@ -15,56 +16,16 @@ class MembershipController extends Controller
 public function index(Request $request)
     {
         $gimnasioId = $request->user()->gimnasio_id;
-        $now = Carbon::now();
-        $cancelCutoff = $now->copy()->subDays(30);
 
         // --- 1. RUTINA DE MANTENIMIENTO AUTOMÁTICO ---
-        Membership::whereIn('status', ['active', 'expired', 'inactive_unpaid'])
-            ->whereDate('end_date', '<=', $cancelCutoff->toDateString())
-            ->whereHas('member', function ($query) use ($gimnasioId) {
-                $query->where('gimnasio_id', $gimnasioId);
-            })
-            ->update(['status' => 'cancelled']);
-
-        $membresiasVencidas = Membership::with('plan')
-                ->where('end_date', '<', $now)
-                ->whereNotIn('status', ['cancelled', 'inactive_unpaid'])
-            ->whereHas('member', function ($query) use ($gimnasioId) {
-                $query->where('gimnasio_id', $gimnasioId);
-            })
-            ->get();
-
-        foreach ($membresiasVencidas as $m) {
-            $guardarCambios = false;
-
-            // Membresías vencidas hace más de 3 días → pasar a 'inactive_unpaid'
-            if (Carbon::parse($m->end_date)->lt($now->copy()->subDays(3))) {
-                $m->status = 'inactive_unpaid';
-                $m->save();
-                continue;
-            }
-
-            if ($m->status !== 'expired') {
-                $m->status = 'expired';
-                $guardarCambios = true;
-            }
-
-            if ($m->outstanding_balance <= 0 && $m->plan) {
-                $m->outstanding_balance = $m->plan->price;
-                $guardarCambios = true;
-            }
-
-            if ($guardarCambios) {
-                $m->save();
-            }
-        }
-        // --- FIN RUTINA ---
+        // Actualiza estados vencidos/cancelados con updates masivos, como máximo cada
+        // pocos minutos por gimnasio (antes se hacía fila por fila en cada visita).
+        app(MembershipStatusService::class)->refreshGymThrottled($gimnasioId);
 
         // 2. Construir la consulta base
-        $query = Membership::with(['member', 'plan.membershipType'])
-            ->whereHas('member', function ($query) use ($gimnasioId) {
-                $query->where('gimnasio_id', $gimnasioId);
-            });
+        // Solo los datos del cliente que muestra la vista (sin fotos, huella ni estado calculado).
+        $query = Membership::with(['member:id,name,identification,email,phone,gimnasio_id', 'plan.membershipType'])
+            ->whereIn('member_id', Member::select('id')->where('gimnasio_id', $gimnasioId));
 
         // 3. Filtro de búsqueda por nombre de miembro
         $search = $request->input('search');
@@ -98,6 +59,7 @@ public function index(Request $request)
 
         // 6. Ordenar por fecha más reciente y paginar
         $memberships = $query->orderByDesc('end_date')->paginate(15);
+        $memberships->getCollection()->each(fn ($membership) => $membership->member?->setAppends([]));
 
         return response()->json($memberships);
     }
@@ -245,29 +207,26 @@ public function index(Request $request)
          DEBE ejecutarse al menos una vez al día (configurar Cron Job).
         */
 
-        // Aseguramos que los 'expired' estén actualizados antes de contar
-        Membership::where('status', 'active')
-            ->where('end_date', '<', Carbon::now())
-            ->whereHas('member', function ($query) use ($gimnasioId) {
-                $query->where('gimnasio_id', $gimnasioId);
-            })
-            ->update(['status' => 'expired']);
+        // Aseguramos que los estados estén actualizados antes de contar (como máximo cada pocos minutos).
+        app(MembershipStatusService::class)->refreshGymThrottled($gimnasioId);
 
-        // Query base para el gimnasio actual
-        $baseQuery = Membership::whereHas('member', function ($query) use ($gimnasioId) {
-            $query->where('gimnasio_id', $gimnasioId);
-        });
+        $today = Carbon::now()->toDateString();
+        $soon = Carbon::now()->addDays(3)->toDateString();
+
+        // Un solo query con conteos condicionales en vez de cuatro.
+        $row = Membership::whereIn('member_id', Member::select('id')->where('gimnasio_id', $gimnasioId))
+            ->selectRaw("SUM(status = 'active') as active")
+            ->selectRaw("SUM(status = 'expired') as expired")
+            ->selectRaw("SUM(status = 'inactive_unpaid') as inactive_unpaid")
+            // Notificar 3 días antes (igual que la tarea programada)
+            ->selectRaw("SUM(status = 'active' AND DATE(end_date) BETWEEN ? AND ?) as expiring_soon", [$today, $soon])
+            ->first();
 
         $stats = [
-            'active' => (clone $baseQuery)->where('status', 'active')->count(),
-            'expired' => (clone $baseQuery)->where('status', 'expired')->count(),
-            'inactive_unpaid' => (clone $baseQuery)->where('status', 'inactive_unpaid')->count(),
-            'expiring_soon' => (clone $baseQuery)
-                                ->where('status', 'active')
-                                ->whereDate('end_date', '>=', Carbon::now())
-                                // Notificar 3 días antes (o los que definas en tu tarea programada)
-                                ->whereDate('end_date', '<=', Carbon::now()->addDays(3))
-                                ->count(),
+            'active' => (int) $row->active,
+            'expired' => (int) $row->expired,
+            'inactive_unpaid' => (int) $row->inactive_unpaid,
+            'expiring_soon' => (int) $row->expiring_soon,
         ];
 
         return response()->json($stats);

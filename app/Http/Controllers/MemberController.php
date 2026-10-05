@@ -7,13 +7,18 @@ use App\Models\Gimnasio;
 use App\Models\Member;
 // --- AÑADIR IMPORTS ---
 use App\Models\Membership;
+use App\Models\MembershipNotification;
 use App\Models\MembershipPlan;
+use App\Rules\ColombianMobile;
+use App\Services\WhatsAppService;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Arr; // <-- IMPORTANTE AÑADIR ESTO
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Carbon\Carbon;
 
 class MemberController extends Controller
@@ -21,9 +26,19 @@ class MemberController extends Controller
     public function index(Request $request)
     {
         $gimnasioId = $request->user()->gimnasio_id;
+
+        // ?simple=1: solo lo necesario para buscadores/selectores (sin membresías, fotos ni estado).
+        if ($request->boolean('simple')) {
             return Member::where('gimnasio_id', $gimnasioId)
+                ->orderBy('name')
+                ->get(['id', 'name', 'identification', 'email', 'phone'])
+                ->each->setAppends([]);
+        }
+
+        return Member::where('gimnasio_id', $gimnasioId)
             ->with('memberships.plan.type')
-            ->get();
+            ->get()
+            ->makeHidden('fingerprint_data');
     }
 
     // --- ======================================== ---
@@ -36,7 +51,10 @@ class MemberController extends Controller
             'identification' => 'required|string|unique:members,identification',
             'name' => 'required|string|max:255',
             'email' => 'nullable|email|unique:members,email',
-            'phone' => 'nullable|string|max:20',
+            'phone' => [
+                'nullable', 'string', 'max:20',
+                Rule::when($request->boolean('allow_whatsapp_notifications'), ['required', new ColombianMobile]),
+            ],
             'allow_whatsapp_notifications' => 'sometimes|boolean',
             'birth_date' => 'nullable|date',
             'medical_history' => 'nullable|string',
@@ -60,7 +78,11 @@ class MemberController extends Controller
         unset($memberData['initial_photos']);
 
         // --- Lógica de Huella (Opcional) ---
-        $gimnasio = Gimnasio::findOrFail($memberData['gimnasio_id']);
+        $gimnasio = $this->resolveAuthenticatedGym($request);
+        if (!$gimnasio) {
+            return $this->invalidAuthenticatedGymResponse($request);
+        }
+
         if ($gimnasio->uses_access_control) {
              $request->validate(['fingerprint_data' => 'required|string']);
              $memberData['fingerprint_data'] = $request->fingerprint_data;
@@ -122,16 +144,16 @@ class MemberController extends Controller
     // ---
 
 
-    public function show($id)
+    public function show(Request $request, $id)
     {
-        $member = Member::with('memberships.plan.type')->findOrFail($id);
+        $member = $this->findGymMember($request, $id)->load('memberships.plan.type');
 
         return response()->json($member);
     }
 
     public function update(Request $request, $id)
     {
-        $member = Member::findOrFail($id);
+        $member = $this->findGymMember($request, $id);
 
         $validated = $request->validate([
             // (Quitamos gimnasio_id, no se debe cambiar)
@@ -148,6 +170,19 @@ class MemberController extends Controller
             'initial_photos' => 'nullable|array|max:3',
             // 'fingerprint_data' => 'nullable|string', // Se maneja abajo
         ]);
+
+        // Si el cliente queda con WhatsApp activado, el teléfono final debe ser un celular válido
+        // (aunque en esta petición solo cambie uno de los dos campos).
+        $allowWhatsApp = $request->has('allow_whatsapp_notifications')
+            ? $request->boolean('allow_whatsapp_notifications')
+            : $member->allow_whatsapp_notifications;
+        $phone = array_key_exists('phone', $validated) ? $validated['phone'] : $member->phone;
+
+        if ($allowWhatsApp) {
+            $request->merge(['phone' => $phone])->validate([
+                'phone' => ['required', new ColombianMobile],
+            ]);
+        }
 
         $oldPhotos = [$member->foto1, $member->foto2, $member->foto3];
 
@@ -179,22 +214,81 @@ class MemberController extends Controller
     }
 
 
+    /**
+     * Activa o desactiva los recordatorios por WhatsApp de varios clientes del gimnasio.
+     * Al activar se omiten los clientes sin un celular colombiano válido.
+     */
+    public function updateWhatsAppNotifications(Request $request)
+    {
+        $validated = $request->validate([
+            'member_ids' => 'required|array|min:1',
+            'member_ids.*' => 'integer',
+            'enabled' => 'required|boolean',
+        ]);
+
+        $enabled = $request->boolean('enabled');
+        $members = Member::where('gimnasio_id', $request->user()->gimnasio_id)
+            ->whereIn('id', $validated['member_ids'])
+            ->get();
+
+        $updated = 0;
+        $invalidPhone = [];
+
+        foreach ($members as $member) {
+            if ($enabled && !WhatsAppService::formatColombianPhone($member->phone)) {
+                $invalidPhone[] = ['id' => $member->id, 'name' => $member->name, 'phone' => $member->phone];
+                continue;
+            }
+
+            if ($member->allow_whatsapp_notifications === $enabled) {
+                continue;
+            }
+
+            $member->allow_whatsapp_notifications = $enabled;
+            $member->whatsapp_opt_in_at = $enabled ? now() : null;
+            $member->save();
+            $updated++;
+        }
+
+        return response()->json([
+            'updated' => $updated,
+            'invalid_phone' => $invalidPhone,
+        ]);
+    }
+
+    /**
+     * Historial de recordatorios por WhatsApp enviados a un cliente.
+     */
+    public function whatsAppNotifications(Request $request, $id)
+    {
+        $member = $this->findGymMember($request, $id);
+
+        $notifications = MembershipNotification::with('membership:id,end_date')
+            ->where('member_id', $member->id)
+            ->where('channel', WhatsAppService::CHANNEL)
+            ->latest('updated_at')
+            ->limit(20)
+            ->get(['id', 'membership_id', 'type', 'status', 'error_message', 'sent_at', 'created_at', 'updated_at']);
+
+        return response()->json($notifications);
+    }
+
     public function storeFingerprint(Request $request, $id)
     {
         $request->validate([
             'fingerprint_data' => 'required|string',
         ]);
 
-        $member = Member::findOrFail($id);
+        $member = $this->findGymMember($request, $id);
         $member->fingerprint_data = $request->fingerprint_data;
         $member->save();
 
         return response()->json(['message' => 'Huella guardada correctamente']);
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
-        $member = Member::findOrFail($id);
+        $member = $this->findGymMember($request, $id);
         $this->deletePhotosFromStorage([$member->foto1, $member->foto2, $member->foto3]);
         $member->delete();
 
@@ -207,7 +301,7 @@ class MemberController extends Controller
      */
     public function enrollFingerprint(Request $request, $id)
     {
-        $member = Member::findOrFail($id);
+        $member = $this->findGymMember($request, $id);
 
         $request->validate([
             'fingerprint_data' => 'required|string',
@@ -228,7 +322,10 @@ class MemberController extends Controller
         ]);
 
         $gimnasioId = $request->user()->gimnasio_id;
-        $gimnasio = Gimnasio::findOrFail($gimnasioId);
+        $gimnasio = $this->resolveAuthenticatedGym($request);
+        if (!$gimnasio) {
+            return $this->invalidAuthenticatedGymResponse($request);
+        }
 
         $clientId = null;
         if (!empty($validated['member_id'])) {
@@ -473,5 +570,41 @@ class MemberController extends Controller
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * Busca un cliente solo dentro del gimnasio del usuario autenticado (404 si es de otro gimnasio).
+     */
+    private function findGymMember(Request $request, $id): Member
+    {
+        return Member::where('gimnasio_id', $request->user()->gimnasio_id)->findOrFail($id);
+    }
+
+    private function resolveAuthenticatedGym(Request $request): ?Gimnasio
+    {
+        $user = $request->user();
+        $gimnasioId = $user?->gimnasio_id;
+
+        if (!$gimnasioId) {
+            return null;
+        }
+
+        return Gimnasio::find($gimnasioId);
+    }
+
+    private function invalidAuthenticatedGymResponse(Request $request)
+    {
+        $user = $request->user();
+
+        Log::warning('Usuario autenticado sin gimnasio válido.', [
+            'user_id' => $user?->id,
+            'gimnasio_id' => $user?->gimnasio_id,
+            'route' => $request->path(),
+        ]);
+
+        return response()->json([
+            'error' => 'El usuario autenticado no tiene un gimnasio válido asociado.',
+            'details' => 'Revisa users.gimnasio_id contra gimnasios.id en producción.',
+        ], 422);
     }
 }

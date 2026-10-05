@@ -26,7 +26,7 @@ class WhatsAppService
             return ['status' => 'skipped', 'reason' => 'opt_out'];
         }
 
-        $to = $this->formatColombianPhone($member->phone);
+        $to = self::formatColombianPhone($member->phone);
         if (!$to) {
             return ['status' => 'skipped', 'reason' => 'invalid_phone'];
         }
@@ -84,7 +84,7 @@ class WhatsAppService
                     'body' => $response->body(),
                 ]);
 
-                return ['status' => 'failed', 'reason' => 'provider_error'];
+                return ['status' => 'failed', 'reason' => 'provider_error', 'http_status' => $response->status()];
             }
 
             $providerMessageId = $response->json('messages.0.id');
@@ -174,7 +174,7 @@ class WhatsAppService
         return null;
     }
 
-    private function formatColombianPhone(?string $phone): ?string
+    public static function formatColombianPhone(?string $phone): ?string
     {
         $digits = preg_replace('/\D+/', '', (string) $phone);
 
@@ -182,7 +182,7 @@ class WhatsAppService
             return '57' . $digits;
         }
 
-        if (strlen($digits) === 12 && str_starts_with($digits, '57')) {
+        if (strlen($digits) === 12 && str_starts_with($digits, '573')) {
             return $digits;
         }
 
