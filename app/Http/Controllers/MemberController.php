@@ -322,7 +322,10 @@ class MemberController extends Controller
         ]);
 
         $gimnasioId = $request->user()->gimnasio_id;
-        $gimnasio = Gimnasio::findOrFail($gimnasioId);
+        $gimnasio = $this->resolveAuthenticatedGym($request);
+        if (!$gimnasio) {
+            return $this->invalidAuthenticatedGymResponse($request);
+        }
 
         $clientId = null;
         if (!empty($validated['member_id'])) {
