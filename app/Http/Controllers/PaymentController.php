@@ -273,7 +273,7 @@ public function store(Request $request)
 
 
         // 1. Pagos de Membresías
-        $queryPayments = Payment::with(['paymentable.member', 'payment_method'])
+        $queryPayments = Payment::with(['paymentable.member:id,name,identification,gimnasio_id', 'payment_method'])
             ->whereBetween('paid_at', [$startDateCarbon, $endDateCarbon])
             ->whereHasMorph(
                 'paymentable',
@@ -286,7 +286,7 @@ public function store(Request $request)
             );
 
         // 2. Pagos de Suplementos (Basado en SupplementSaleController)
-        $querySales = Payment::with(['paymentable.product', 'paymentable.member', 'payment_method'])
+        $querySales = Payment::with(['paymentable.product', 'paymentable.member:id,name,identification,gimnasio_id', 'payment_method'])
             ->whereBetween('paid_at', [$startDateCarbon, $endDateCarbon])
             ->whereHasMorph(
                 'paymentable',
@@ -305,6 +305,10 @@ public function store(Request $request)
 
         // 3. Combinar todo y ordenar
         $allTransactions = $payments->concat($sales)->sortByDesc('paid_at');
+
+        // El historial solo muestra el nombre del cliente: sin campos calculados
+        // (is_expired consultaría las membresías de cada cliente).
+        $allTransactions->each(fn ($payment) => $payment->paymentable?->member?->setAppends([]));
 
         return response()->json([
             'total_ingresos' => $allTransactions->sum('amount'),

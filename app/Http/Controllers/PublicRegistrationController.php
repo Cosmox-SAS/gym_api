@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Rules\ColombianMobile;
 use Illuminate\Http\Request;
 use App\Models\Gimnasio;
 use App\Models\Member;
@@ -43,7 +44,10 @@ class PublicRegistrationController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'nullable|email|max:255|unique:members,email',
-            'phone' => 'nullable|string|max:20',
+            'phone' => [
+                'nullable', 'string', 'max:20',
+                Rule::when($request->boolean('allow_whatsapp_notifications'), ['required', new ColombianMobile]),
+            ],
             'allow_whatsapp_notifications' => 'sometimes|boolean',
             'birth_date' => 'required|date',
             // Usamos los mismos 'in' que tu MemberController original

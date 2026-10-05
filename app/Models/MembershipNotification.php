@@ -23,4 +23,9 @@ class MembershipNotification extends Model
         'metadata' => 'array',
         'sent_at' => 'datetime',
     ];
+
+    public function membership()
+    {
+        return $this->belongsTo(Membership::class);
+    }
 }

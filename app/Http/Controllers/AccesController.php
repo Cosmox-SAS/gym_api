@@ -41,7 +41,7 @@ class AccesController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Membresía expirada',
-                'member' => $member,
+                'member' => $this->publicMemberData($member),
                 'access_summary' => $this->buildAccessSummary($member),
             ], 403);
         }
@@ -56,9 +56,18 @@ class AccesController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Acceso permitido',
-            'member' => $member,
+            'member' => $this->publicMemberData($member),
             'access_summary' => $this->buildAccessSummary($member),
         ]);
+    }
+
+    /**
+     * Datos mínimos del cliente para el kiosco: la ruta es pública, así que no se exponen
+     * contacto, datos médicos ni la huella.
+     */
+    private function publicMemberData(Member $member): array
+    {
+        return $member->only(['id', 'name', 'identification']);
     }
 
     private function buildAccessSummary(Member $member): array
