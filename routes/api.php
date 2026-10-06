@@ -79,6 +79,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/members/{id}/fingerprint', [MemberController::class, 'storeFingerprint']);
     Route::post('/members/photos/upload', [MemberController::class, 'uploadInitialPhoto']);
+    Route::get('/members/birthdays', [MemberController::class, 'birthdays']);
     Route::post('/members/whatsapp-notifications', [MemberController::class, 'updateWhatsAppNotifications']);
     Route::get('/members/{id}/whatsapp-notifications', [MemberController::class, 'whatsAppNotifications']);
     Route::apiResource('/members', MemberController::class);

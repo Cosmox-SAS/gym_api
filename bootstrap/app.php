@@ -25,6 +25,8 @@ return Application::configure(basePath: dirname(__DIR__))
         // Aquí es donde "registramos" nuestro piloto automático para
         // que se ejecute todos los días a las 8:00 AM.
         $schedule->command('app:update-membership-status')->dailyAt('08:00');
+        // Correo a los administradores con los cumpleaños del día.
+        $schedule->command('gym:cumpleanos')->dailyAt('07:00');
     })
     // -------------------------------------
     ->create();
