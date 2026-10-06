@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Jobs\SendMembershipExpiringSoonWhatsApp;
+use App\Services\WhatsAppService;
 use Illuminate\Console\Command;
 use App\Models\Membership;
 use Carbon\Carbon;
@@ -70,6 +71,20 @@ class UpdateMembershipStatus extends Command
 
             Log::info("Notificando a [{$membership->member->name}]: Su membresía vence en 3 días.");
             // TODO: Notificar al Admin (puedes guardar esto en una tabla 'notifications' o similar)
+        }
+
+        // 2b. SEGUNDO AVISO POR WHATSAPP: membresías que vencen HOY y siguen sin renovar.
+        // Si el cliente paga por adelantado, el pago extiende la end_date de esta misma
+        // membresía, así que las que todavía vencen hoy son las que no han pagado.
+        $dueToday = Membership::with('member')
+            ->where('status', 'active')
+            ->whereDate('end_date', '=', $now->toDateString())
+            ->get();
+
+        foreach ($dueToday as $membership) {
+            SendMembershipExpiringSoonWhatsApp::dispatch($membership->id, WhatsAppService::TYPE_EXPIRES_TODAY);
+
+            Log::info("Notificando a [{$membership->member->name}]: Su membresía vence hoy y no ha renovado.");
         }
 
         // 3. VENCER: Membresías que vencieron ayer o antes y siguen 'activas'
