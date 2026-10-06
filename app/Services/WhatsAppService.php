@@ -12,8 +12,14 @@ class WhatsAppService
 {
     public const CHANNEL = 'whatsapp';
     public const TYPE_EXPIRING_SOON = 'membership_expiring_soon';
+    // Segundo aviso: el mismo día del vencimiento, si el cliente aún no ha pagado.
+    public const TYPE_EXPIRES_TODAY = 'membership_expires_today';
 
-    public function sendMembershipExpiringSoon(Membership $membership): array
+    /**
+     * Envía el recordatorio de vencimiento. Ambos tipos usan la misma plantilla
+     * ("... vence el {{3}}"); el tipo solo distingue el registro para no repetir cada aviso.
+     */
+    public function sendMembershipExpiringSoon(Membership $membership, string $type = self::TYPE_EXPIRING_SOON): array
     {
         if (!config('services.whatsapp.enabled')) {
             return ['status' => 'skipped', 'reason' => 'disabled'];
@@ -33,7 +39,7 @@ class WhatsAppService
 
         $alreadySent = MembershipNotification::where('membership_id', $membership->id)
             ->where('channel', self::CHANNEL)
-            ->where('type', self::TYPE_EXPIRING_SOON)
+            ->where('type', $type)
             ->where('status', 'sent')
             ->exists();
 
@@ -45,7 +51,7 @@ class WhatsAppService
             [
                 'membership_id' => $membership->id,
                 'channel' => self::CHANNEL,
-                'type' => self::TYPE_EXPIRING_SOON,
+                'type' => $type,
             ],
             [
                 'gimnasio_id' => $member->gimnasio_id,

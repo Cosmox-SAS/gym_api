@@ -21,8 +21,10 @@ class SendMembershipExpiringSoonWhatsApp implements ShouldQueue, ShouldBeUnique
 
     public array $backoff = [60, 300, 900];
 
-    public function __construct(public int $membershipId)
-    {
+    public function __construct(
+        public int $membershipId,
+        public string $type = WhatsAppService::TYPE_EXPIRING_SOON,
+    ) {
     }
 
     public function handle(WhatsAppService $whatsApp): void
@@ -37,10 +39,11 @@ class SendMembershipExpiringSoonWhatsApp implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        $result = $whatsApp->sendMembershipExpiringSoon($membership);
+        $result = $whatsApp->sendMembershipExpiringSoon($membership, $this->type);
 
         Log::info('Resultado recordatorio WhatsApp de membresía.', [
             'membership_id' => $membership->id,
+            'type' => $this->type,
             'attempt' => $this->attempts(),
             'result' => $result,
         ]);
@@ -72,6 +75,6 @@ class SendMembershipExpiringSoonWhatsApp implements ShouldQueue, ShouldBeUnique
 
     public function uniqueId(): string
     {
-        return "membership-expiring-soon-whatsapp:{$this->membershipId}";
+        return "membership-whatsapp:{$this->type}:{$this->membershipId}";
     }
 }

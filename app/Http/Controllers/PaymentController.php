@@ -173,17 +173,18 @@ public function store(Request $request)
 
                 if ($totalPagos <= 1) {
                     // CASO 1: Es su primer pago -> BIENVENIDA (Con reglas y horarios)
+                    // En cola: el registro del pago no espera al servidor de correo.
                     \Illuminate\Support\Facades\Mail::to($miembro->email)
-                        ->send(new \App\Mail\BienvenidaMiembroMail($miembro, $miembro->gimnasio));
+                        ->queue(new \App\Mail\BienvenidaMiembroMail($miembro, $miembro->gimnasio));
 
-                    \Illuminate\Support\Facades\Log::info("📧 Bienvenida enviada a nuevo cliente: " . $miembro->email);
+                    \Illuminate\Support\Facades\Log::info("📧 Bienvenida encolada para nuevo cliente: " . $miembro->email);
                 } else {
                     // CASO 2: Ya tiene pagos previos -> RENOVACIÓN (Solo gracias)
                     // Pasamos el $payment actual para mostrar el monto en el correo
                     \Illuminate\Support\Facades\Mail::to($miembro->email)
-                        ->send(new \App\Mail\RenovacionMiembroMail($miembro, $miembro->gimnasio, $payment));
+                        ->queue(new \App\Mail\RenovacionMiembroMail($miembro, $miembro->gimnasio, $payment));
 
-                    \Illuminate\Support\Facades\Log::info("📧 Renovación enviada a cliente recurrente: " . $miembro->email);
+                    \Illuminate\Support\Facades\Log::info("📧 Renovación encolada para cliente recurrente: " . $miembro->email);
                 }
             }
         } catch (\Exception $e) {
