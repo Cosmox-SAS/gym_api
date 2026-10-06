@@ -10,6 +10,7 @@ use App\Models\Membership;
 use App\Models\MembershipNotification;
 use App\Models\MembershipPlan;
 use App\Rules\ColombianMobile;
+use App\Services\BirthdayService;
 use App\Services\WhatsAppService;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -213,6 +214,18 @@ class MemberController extends Controller
        return response()->json($member);
     }
 
+
+    /**
+     * Cumpleaños de los clientes del gimnasio entre hoy y los próximos días (?days=, por defecto 7).
+     */
+    public function birthdays(Request $request, BirthdayService $birthdays)
+    {
+        $validated = $request->validate(['days' => 'sometimes|integer|min:0|max:31']);
+
+        return response()->json(
+            $birthdays->upcoming($request->user()->gimnasio_id, (int) ($validated['days'] ?? 7))
+        );
+    }
 
     /**
      * Activa o desactiva los recordatorios por WhatsApp de varios clientes del gimnasio.
