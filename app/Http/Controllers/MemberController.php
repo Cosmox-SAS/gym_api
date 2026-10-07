@@ -49,9 +49,10 @@ class MemberController extends Controller
     {
         // 1. Validar TODOS los campos, incluyendo el plan opcional
         $validated = $request->validate([
-            'identification' => 'required|string|unique:members,identification',
+            // Únicos por gimnasio: una persona puede ser cliente de varios gimnasios.
+            'identification' => ['required', 'string', $this->uniqueInGym($request, 'identification')],
             'name' => 'required|string|max:255',
-            'email' => 'nullable|email|unique:members,email',
+            'email' => ['nullable', 'email', $this->uniqueInGym($request, 'email')],
             'phone' => [
                 'nullable', 'string', 'max:20',
                 Rule::when($request->boolean('allow_whatsapp_notifications'), ['required', new ColombianMobile]),
@@ -159,7 +160,7 @@ class MemberController extends Controller
         $validated = $request->validate([
             // (Quitamos gimnasio_id, no se debe cambiar)
             'name' => 'sometimes|string|max:255',
-            'email' => 'sometimes|nullable|email|unique:members,email,' . $member->id,
+            'email' => ['sometimes', 'nullable', 'email', $this->uniqueInGym($request, 'email', $member->id)],
             'phone' => 'sometimes|nullable|string|max:20',
             'allow_whatsapp_notifications' => 'sometimes|boolean',
             'birth_date' => 'sometimes|nullable|date',
@@ -167,7 +168,7 @@ class MemberController extends Controller
             'sexo' => 'nullable|string|in:masculino,femenino,no_binario,otro,preferir_no_decir',
             'estatura' => 'nullable|numeric|min:0',
             'peso' => 'nullable|numeric|min:0',
-            'identification' => 'sometimes|string|unique:members,identification,' . $member->id,
+            'identification' => ['sometimes', 'string', $this->uniqueInGym($request, 'identification', $member->id)],
             'initial_photos' => 'nullable|array|max:3',
             // 'fingerprint_data' => 'nullable|string', // Se maneja abajo
         ]);
@@ -583,6 +584,16 @@ class MemberController extends Controller
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * Regla de unicidad de un campo de clientes dentro del gimnasio del usuario autenticado.
+     */
+    private function uniqueInGym(Request $request, string $column, ?int $ignoreId = null)
+    {
+        return Rule::unique('members', $column)
+            ->where('gimnasio_id', $request->user()->gimnasio_id)
+            ->ignore($ignoreId);
     }
 
     /**
