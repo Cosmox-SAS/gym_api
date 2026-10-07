@@ -25,11 +25,22 @@ class AccesController extends Controller
             $memberQuery->where('gimnasio_id', $request->gimnasio_id);
         }
 
-        $member = $memberQuery->first();
+        // La cédula es única por gimnasio: sin gimnasio_id, una misma persona puede
+        // aparecer en varios gimnasios y no sabríamos en cuál registrar la entrada.
+        $matches = $memberQuery->limit(2)->get();
 
-        if (!$member) {
+        if ($matches->isEmpty()) {
             return response()->json(['success' => false, 'message' => 'Miembro no encontrado'], 404);
         }
+
+        if ($matches->count() > 1) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Este kiosco no tiene un gimnasio configurado. Ábrelo con el enlace de tu gimnasio.',
+            ], 422);
+        }
+
+        $member = $matches->first();
 
         if ($member->is_expired) {
             AccessLog::create([

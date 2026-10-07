@@ -43,7 +43,8 @@ class PublicRegistrationController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'nullable|email|max:255|unique:members,email',
+            // Únicos dentro de este gimnasio: una persona puede ser cliente de varios gimnasios.
+            'email' => ['nullable', 'email', 'max:255', Rule::unique('members', 'email')->where('gimnasio_id', $gimnasio->id)],
             'phone' => [
                 'nullable', 'string', 'max:20',
                 Rule::when($request->boolean('allow_whatsapp_notifications'), ['required', new ColombianMobile]),
@@ -54,7 +55,7 @@ class PublicRegistrationController extends Controller
             'sexo' => 'required|string|in:masculino,femenino,no_binario,otro,preferir_no_decir',
             'estatura' => 'nullable|numeric|min:0',
             'peso' => 'nullable|numeric|min:0',
-            'identification' => 'required|string|unique:members,identification',
+            'identification' => ['required', 'string', Rule::unique('members', 'identification')->where('gimnasio_id', $gimnasio->id)],
             'plan_id' => [
                 'required',
                 // Validamos que el plan exista Y que pertenezca al gimnasio
