@@ -77,6 +77,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('/memberships', MembershipController::class);
     // ----------------------------------------------------
 
+    // Historial de ingresos (vista Ingresos)
+    Route::get('/access/logs', [AccesController::class, 'getLogs']);
+
     Route::post('/members/{id}/fingerprint', [MemberController::class, 'storeFingerprint']);
     Route::post('/members/photos/upload', [MemberController::class, 'uploadInitialPhoto']);
     Route::get('/members/birthdays', [MemberController::class, 'birthdays']);

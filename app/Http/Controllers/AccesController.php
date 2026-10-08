@@ -73,6 +73,26 @@ class AccesController extends Controller
     }
 
     /**
+     * Historial de ingresos del gimnasio del usuario autenticado, del más reciente al más antiguo.
+     */
+    public function getLogs(Request $request)
+    {
+        $gimnasioId = $request->user()->gimnasio_id;
+
+        $logs = AccessLog::whereIn('member_id', Member::select('id')->where('gimnasio_id', $gimnasioId))
+            ->with('member:id,name,identification')
+            ->orderByDesc('accessed_at')
+            ->orderByDesc('id')
+            ->paginate(50);
+
+        // La vista solo usa nombre y cédula: sin los atributos calculados del miembro
+        // (is_expired consulta las membresías de cada cliente).
+        $logs->getCollection()->each(fn ($log) => $log->member?->setAppends([]));
+
+        return response()->json($logs);
+    }
+
+    /**
      * Datos mínimos del cliente para el kiosco: la ruta es pública, así que no se exponen
      * contacto, datos médicos ni la huella.
      */
